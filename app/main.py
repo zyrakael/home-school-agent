@@ -1,17 +1,16 @@
-"""FastAPI application factory for the home-school Agent MVP."""
+"""FastAPI application factory for the home-school Agent API."""
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.agent_routes import router as agent_router
-from app.api.student_routes import router as student_router
 
 
 def create_app() -> FastAPI:
     app = FastAPI(
         title="Home-school Agent API",
         version="0.1.0",
-        description="MVP API backed by MySQL.",
+        description="Agent API backed by remote MCP tools.",
     )
 
     app.add_middleware(
@@ -23,7 +22,6 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(agent_router)
-    app.include_router(student_router)
     return app
 
 

@@ -1,5 +1,5 @@
 """Application package for the home-school Agent MVP.
 
-This package will contain the API service, LangGraph orchestration,
-read-only tools, knowledge retrieval, LLM clients, and shared schemas.
+This package contains the API service, LangChain-style agent orchestration,
+MCP tools, knowledge retrieval, LLM clients, and shared schemas.
 """

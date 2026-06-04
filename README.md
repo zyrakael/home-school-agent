@@ -1,6 +1,8 @@
 # Home-school Agent
 
-家校沟通 Agent MVP，后端使用 FastAPI + MySQL。应用启动时不会自动建表，也不会写入演示数据；接口只从 `DATABASE_URL` 指向的数据库读取数据。
+家校沟通 Agent API 与前端 Agent 工作台。这个项目只负责接收老师的自然语言需求、通过 MCP Gateway 调用远程 MCP 数据工具，并生成可编辑的家校沟通草稿。
+
+本项目不再内置学生、班级、作业、错题等本地数据接口；这些数据能力由同级独立项目 `../mcp-data-service` 提供。
 
 ## Run
 
@@ -10,27 +12,27 @@
 cp .env.example .env
 ```
 
-按你的 MySQL 账号修改 `.env` 里的 `DATABASE_URL`。
-
-2. 如果需要本地 MySQL：
+2. 启动同级 MCP 数据服务：
 
 ```bash
-docker compose up -d
+cd ../mcp-data-service
+cp .env.example .env
+uv run python -m mcp_data_service.main
 ```
 
-3. 初始化数据库结构：
+3. 在本项目 `.env` 中配置 MCP 连接：
 
-```bash
-mysql -h 127.0.0.1 -P 3306 -u root -pagent agent < schema.sql
+```env
+MCP_SERVERS='[{"name":"data","transport":"streamable_http","url":"http://127.0.0.1:8100/mcp","headers":{"Authorization":"Bearer <token>"},"tool_prefixes":["user","learning","wrong_question","lesson"],"timeout_seconds":10}]'
 ```
 
-4. 启动后端：
+4. 启动后端 Agent API：
 
 ```bash
 uv run uvicorn app.main:app --reload
 ```
 
-5. 启动前端：
+5. 启动前端 Agent 工作台：
 
 ```bash
 cd web
@@ -38,16 +40,15 @@ npm install
 npm run dev
 ```
 
-## Data Source
+## API
 
-所有学生、作业、课堂表现、错题数据都来自 MySQL。请直接向数据库表写入真实数据：
+- `POST /agent/mvp/chat`
 
-- `classes`
-- `students`
-- `homeworks`
-- `homework_details`
-- `homework_questions`
-- `lesson_performances`
-- `wrong_questions`
+请求体使用 `app.schemas.agent.AgentChatRequest`，返回 `app.schemas.response.AgentChatResponse`。
 
-API 不会在启动时创建、重置或填充这些表。
+## Boundary
+
+- 不直接连接业务数据库。
+- 不提供学生、班级、作业等 CRUD/查询接口。
+- 不内置 MCP Server。
+- 不发送消息给家长，只生成老师可编辑草稿。

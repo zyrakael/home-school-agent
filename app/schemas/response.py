@@ -3,13 +3,6 @@
 from pydantic import BaseModel, Field
 
 
-class HealthResponse(BaseModel):
-    """Health check response."""
-
-    status: str
-    service: str
-
-
 class AgentSection(BaseModel):
     """A named display section for structured frontend rendering."""
 
