@@ -253,6 +253,106 @@ def test_model_tool_call_is_executed_through_mcp_gateway() -> None:
     assert chat_client.calls[1]["messages"][-1]["role"] == "tool"
 
 
+def test_non_allowlisted_tool_call_is_rejected() -> None:
+    gateway = FakeGateway({})
+    chat_client = FakeChatClient(
+        [
+            ChatResult(
+                ok=True,
+                tool_calls=[
+                    ChatToolCall(
+                        id="call_1",
+                        name="user_get_student_profile",
+                        arguments={"student_id": "stu_1"},
+                    )
+                ],
+                assistant_message={
+                    "role": "assistant",
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "user_get_student_profile",
+                                "arguments": '{"student_id":"stu_1"}',
+                            },
+                        }
+                    ],
+                },
+            ),
+            ChatResult(
+                ok=True,
+                content='{"title":"AI 生成标题","content":"AI 生成正文","sections":[]}',
+                assistant_message={
+                    "role": "assistant",
+                    "content": '{"title":"AI 生成标题","content":"AI 生成正文","sections":[]}',
+                },
+            ),
+        ]
+    )
+    agent = _agent(gateway, chat_client)
+
+    result = asyncio.run(
+        agent.run(
+            _request(),
+            allowed_tools={"learning.get_recent_homeworks"},
+        )
+    )
+
+    assert gateway.calls == []
+    assert "未在工具白名单中" in result.warnings[0]
+
+
+def test_tool_call_with_missing_required_argument_is_skipped() -> None:
+    gateway = FakeGateway({})
+    chat_client = FakeChatClient(
+        [
+            ChatResult(
+                ok=True,
+                tool_calls=[
+                    ChatToolCall(
+                        id="call_1",
+                        name="learning_get_recent_homeworks",
+                        arguments={"days": 7},
+                    )
+                ],
+                assistant_message={
+                    "role": "assistant",
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "learning_get_recent_homeworks",
+                                "arguments": '{"days":7}',
+                            },
+                        }
+                    ],
+                },
+            ),
+            ChatResult(
+                ok=True,
+                content='{"title":"AI 生成标题","content":"AI 生成正文","sections":[]}',
+                assistant_message={
+                    "role": "assistant",
+                    "content": '{"title":"AI 生成标题","content":"AI 生成正文","sections":[]}',
+                },
+            ),
+        ]
+    )
+    agent = _agent(gateway, chat_client)
+
+    result = asyncio.run(
+        agent.run(
+            _request(),
+            allowed_tools={"learning.get_recent_homeworks"},
+        )
+    )
+
+    assert gateway.calls == []
+    assert "缺少必填参数：student_id" in result.warnings[0]
+
+
 def test_tool_failure_becomes_agent_warning() -> None:
     gateway = FakeGateway(
         {

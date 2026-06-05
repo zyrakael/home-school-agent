@@ -10,7 +10,8 @@ from typing import Any, TypedDict
 from app.agent.prompt_builder import PromptBuilder
 from app.llm.chat_client import ChatClient, get_chat_client
 from app.mcp_gateway import MCPGateway, MCPToolDefinition, MCPToolResult, get_mcp_gateway
-from app.schemas.agent import AgentChatRequest
+from app.schemas.agent import AgentChatRequest, AgentExecutionPlan
+from app.skills.loader import Skill
 
 
 @dataclass
@@ -26,6 +27,8 @@ class AgentRunResult:
 
 class AgentChainState(TypedDict, total=False):
     request: AgentChatRequest
+    allowed_tools: set[str] | None
+    tool_schemas: dict[str, dict[str, Any]]
     messages: list[dict[str, Any]]
     tools: list[dict[str, Any]]
     tool_name_map: dict[str, str]
@@ -51,10 +54,22 @@ class MCPAgentChain:
         self.max_tool_rounds = max_tool_rounds
         self._chain: Any | None = None
 
-    async def run(self, request: AgentChatRequest) -> AgentRunResult:
+    async def run(
+        self,
+        request: AgentChatRequest,
+        *,
+        execution_plan: AgentExecutionPlan | None = None,
+        selected_skills: list[Skill] | None = None,
+        allowed_tools: set[str] | None = None,
+    ) -> AgentRunResult:
         """Run the tool-calling agent."""
 
-        state = await self._initial_state(request)
+        state = await self._initial_state(
+            request,
+            execution_plan=execution_plan,
+            selected_skills=selected_skills or [],
+            allowed_tools=allowed_tools,
+        )
         chain = self._build_chain()
         if chain is not None:
             state = await chain.ainvoke(state)
@@ -69,12 +84,37 @@ class MCPAgentChain:
             error=state.get("error"),
         )
 
-    async def _initial_state(self, request: AgentChatRequest) -> AgentChainState:
+    async def _initial_state(
+        self,
+        request: AgentChatRequest,
+        *,
+        execution_plan: AgentExecutionPlan | None,
+        selected_skills: list[Skill],
+        allowed_tools: set[str] | None,
+    ) -> AgentChainState:
         definitions = await self.gateway.list_tools()
+        resolved_allowed_tools = None if allowed_tools is None else set(allowed_tools)
+        if resolved_allowed_tools is not None:
+            definitions = [
+                definition
+                for definition in definitions
+                if definition.name in resolved_allowed_tools
+            ]
         tools, tool_name_map = self._openai_tools(definitions)
-        system, user = PromptBuilder.build_tool_calling_prompt(request)
+        tool_schemas = {definition.name: definition.input_schema for definition in definitions}
+        system, user = PromptBuilder.build_tool_calling_prompt(
+            request,
+            execution_plan=execution_plan,
+            selected_skills=selected_skills,
+            allowed_tools=resolved_allowed_tools,
+        )
+        warnings: list[str] = []
+        if resolved_allowed_tools is not None and not definitions:
+            warnings.append("没有可用数据工具，已按数据不足场景生成草稿。")
         return {
             "request": request,
+            "allowed_tools": resolved_allowed_tools,
+            "tool_schemas": tool_schemas,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
@@ -82,7 +122,7 @@ class MCPAgentChain:
             "tools": tools,
             "tool_name_map": tool_name_map,
             "evidence": [],
-            "warnings": [],
+            "warnings": warnings,
             "tool_results": {},
             "final_content": None,
             "error": None,
@@ -143,9 +183,51 @@ class MCPAgentChain:
         for call in state.get("_pending_tool_calls", []):
             openai_name = call["name"]
             mcp_name = state.get("tool_name_map", {}).get(openai_name, openai_name)
-            result = await self.gateway.call_tool(
+            allowed_tools = state.get("allowed_tools")
+            if allowed_tools is not None and mcp_name not in allowed_tools:
+                state["warnings"].append(f"{mcp_name} 未在工具白名单中，已拒绝调用。")
+                state["messages"].append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call["id"],
+                        "content": json.dumps(
+                            {
+                                "ok": False,
+                                "error": "tool_not_allowed",
+                                "message": f"{mcp_name} is not allowed for this plan.",
+                            },
+                            ensure_ascii=False,
+                        ),
+                    }
+                )
+                continue
+
+            arguments, validation_error = self._validate_tool_arguments(
                 mcp_name,
                 call.get("arguments") or {},
+                state.get("tool_schemas", {}),
+            )
+            if validation_error:
+                state["warnings"].append(validation_error)
+                state["messages"].append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call["id"],
+                        "content": json.dumps(
+                            {
+                                "ok": False,
+                                "error": "invalid_tool_arguments",
+                                "message": validation_error,
+                            },
+                            ensure_ascii=False,
+                        ),
+                    }
+                )
+                continue
+
+            result = await self.gateway.call_tool(
+                mcp_name,
+                arguments,
                 context,
             )
             state["tool_results"][mcp_name] = result
@@ -165,6 +247,34 @@ class MCPAgentChain:
 
         state.pop("_pending_tool_calls", None)
         return state
+
+    @staticmethod
+    def _validate_tool_arguments(
+        tool_name: str,
+        arguments: dict[str, Any],
+        tool_schemas: dict[str, dict[str, Any]],
+    ) -> tuple[dict[str, Any], str | None]:
+        schema = tool_schemas.get(tool_name) or {}
+        properties = schema.get("properties")
+        required = schema.get("required")
+        if not isinstance(properties, dict):
+            properties = {}
+        if not isinstance(required, list):
+            required = []
+
+        cleaned = {
+            key: value
+            for key, value in arguments.items()
+            if key in properties and key != "context"
+        }
+        missing = [
+            item
+            for item in required
+            if item != "context" and cleaned.get(item) in (None, "")
+        ]
+        if missing:
+            return cleaned, f"{tool_name} 缺少必填参数：{', '.join(missing)}"
+        return cleaned, None
 
     @staticmethod
     def _next_step(state: AgentChainState) -> str:

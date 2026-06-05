@@ -4,6 +4,24 @@
 
 本项目不再内置学生、班级、作业、错题等本地数据接口；这些数据能力由同级独立项目 `../mcp-data-service` 提供。
 
+## Internal Flow
+
+```text
+AgentPlanner
+  -> SkillSelector
+  -> ToolRouter / ToolPolicy
+  -> MCPAgentChain
+  -> AgentChatResponse
+```
+
+- `AgentPlanner` 调用 LLM 识别 intent、拆解任务，并输出内部 `data_needs`。
+- `SkillSelector` 按 intent 选择 1 个主 Skill 和 1 个通用家校沟通 Skill。
+- `ToolRouter` 将抽象 `data_needs` 映射成允许调用的 MCP tool 白名单。
+- `MCPAgentChain` 只向 LLM 暴露白名单内工具，并在调用前做工具名和 required 参数校验。
+- 执行计划只在后端内部使用，不返回前端。
+
+`mcp-data-service` 只提供 MCP 数据工具，不负责 Planner、Skill 或 ToolPolicy。
+
 ## Run
 
 1. 准备环境变量：

@@ -6,8 +6,9 @@ import json
 
 from pydantic import BaseModel, Field
 
-from app.schemas.agent import AgentChatRequest
+from app.schemas.agent import AgentChatRequest, AgentExecutionPlan
 from app.schemas.response import AgentSection
+from app.skills.loader import Skill
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +59,13 @@ class PromptBuilder:
     """Build the direct LLM prompt from MCP tool data."""
 
     @staticmethod
-    def build_tool_calling_prompt(request: AgentChatRequest) -> tuple[str, str]:
+    def build_tool_calling_prompt(
+        request: AgentChatRequest,
+        *,
+        execution_plan: AgentExecutionPlan | None = None,
+        selected_skills: list[Skill] | None = None,
+        allowed_tools: set[str] | None = None,
+    ) -> tuple[str, str]:
         """Build prompts for an agent that can call MCP tools itself."""
 
         payload = {
@@ -69,16 +76,37 @@ class PromptBuilder:
             "params": request.params.model_dump(),
             "context": request.context,
         }
+        plan_payload = execution_plan.model_dump() if execution_plan else None
+        skill_payload = [
+            {
+                "name": skill.name,
+                "description": skill.description,
+                "instructions": skill.instructions,
+            }
+            for skill in (selected_skills or [])
+        ]
+        allowed_tool_list = sorted(allowed_tools or [])
         user_prompt = f"""\
         请根据用户请求生成老师可编辑的家校沟通草稿。
 
-        你可以按需调用 MCP 工具获取学生档案、作业、错题、课堂表现等事实数据。
-        优先使用工具获取事实；不要编造未提供的数据。
+        你必须按内部执行计划完成任务。
+        Skills 是表达和分析规则；MCP tools 是事实数据来源。
+        只能调用 allowed_tools 中列出的 MCP 工具，不要尝试调用其他工具。
+        优先使用 allowed_tools 获取事实；不要编造未提供的数据。
         如果工具没有查到数据，请在最终 JSON 中自然说明，并给出老师下一步可以怎么做。
-        如果家长问题涉及退费、投诉、举报、换老师、不想上课等高风险场景，请生成内部处理建议，不要生成可直接发送给家长的话术。
+        如果数据不足，请生成“数据不足版”草稿，并提醒老师补充或确认关键事实。
 
         用户请求 JSON：
         {json.dumps(payload, ensure_ascii=False, indent=2, default=str)}
+
+        内部执行计划 JSON：
+        {json.dumps(plan_payload, ensure_ascii=False, indent=2, default=str)}
+
+        已选 Skills JSON：
+        {json.dumps(skill_payload, ensure_ascii=False, indent=2, default=str)}
+
+        allowed_tools JSON：
+        {json.dumps(allowed_tool_list, ensure_ascii=False, indent=2)}
 
         最终只返回严格 JSON，字段必须符合：
         {{

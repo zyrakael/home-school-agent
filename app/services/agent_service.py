@@ -7,9 +7,12 @@ from uuid import uuid4
 
 from app.agent.intent_router import IntentRouter
 from app.agent.mcp_agent import AgentRunResult, MCPAgentChain
+from app.agent.planner import AgentPlanner, PlannerResult
 from app.agent.prompt_builder import LLMResponsePayload
-from app.schemas.agent import AgentChatRequest
+from app.agent.tool_router import ToolRouter
+from app.schemas.agent import AgentChatRequest, AgentExecutionPlan, AgentPlanStep
 from app.schemas.response import AgentChatResponse, AgentSection
+from app.skills.selector import SkillSelector
 
 logger = logging.getLogger(__name__)
 
@@ -30,21 +33,36 @@ class AgentService:
         self,
         agent: MCPAgentChain | None = None,
         intent_router: IntentRouter | None = None,
+        planner: AgentPlanner | None = None,
+        skill_selector: SkillSelector | None = None,
+        tool_router: ToolRouter | None = None,
     ) -> None:
         self.agent = agent or MCPAgentChain()
-        self.intent_router = intent_router or IntentRouter()
+        self.planner = planner or (
+            _IntentRouterPlannerAdapter(intent_router) if intent_router else AgentPlanner()
+        )
+        self.skill_selector = skill_selector or SkillSelector()
+        self.tool_router = tool_router or ToolRouter()
 
     # ------------------------------------------------------------------
     # Public entry point
     # ------------------------------------------------------------------
 
     async def generate(self, request: AgentChatRequest) -> AgentChatResponse:
-        """Generate a draft by letting the model choose MCP tools."""
+        """Generate a draft from a plan, local skills, and allowed MCP tools."""
 
-        routed = await self.intent_router.route(request)
-        routed_request = routed.request
-        intent = routed_request.params.intent
-        run_result = await self.agent.run(routed_request)
+        planned = await self.planner.plan(request)
+        routed_request = planned.request
+        plan = planned.plan
+        intent = plan.intent
+        skill_selection = self.skill_selector.select(intent)
+        tool_route = self.tool_router.route(plan)
+        run_result = await self.agent.run(
+            routed_request,
+            execution_plan=plan,
+            selected_skills=skill_selection.skills,
+            allowed_tools=tool_route.allowed_tools,
+        )
         parsed = self._parse_agent_output(run_result)
         if parsed is None:
             reason = run_result.error or "LLM 输出解析失败"
@@ -53,7 +71,13 @@ class AgentService:
                 title=self._default_title(routed_request),
                 content="AI 暂时没有生成可用草稿，请稍后重试。",
                 evidence=run_result.evidence,
-                warnings=[*routed.warnings, *run_result.warnings, reason],
+                warnings=[
+                    *planned.warnings,
+                    *skill_selection.warnings,
+                    *tool_route.warnings,
+                    *run_result.warnings,
+                    reason,
+                ],
             )
 
         return self._base_response(
@@ -62,7 +86,12 @@ class AgentService:
             content=parsed.content,
             sections=parsed.sections,
             evidence=run_result.evidence,
-            warnings=[*routed.warnings, *run_result.warnings],
+            warnings=[
+                *planned.warnings,
+                *skill_selection.warnings,
+                *tool_route.warnings,
+                *run_result.warnings,
+            ],
         )
 
     # ------------------------------------------------------------------
@@ -151,3 +180,31 @@ class AgentService:
         if intent == "PARENT_REPLY":
             return "家长问题回复草稿"
         return "AI 草稿"
+
+
+class _IntentRouterPlannerAdapter:
+    """Compatibility adapter for tests and legacy callers that provide IntentRouter."""
+
+    def __init__(self, intent_router: IntentRouter | None = None) -> None:
+        self.intent_router = intent_router or IntentRouter()
+
+    async def plan(self, request: AgentChatRequest) -> PlannerResult:
+        routed = await self.intent_router.route(request)
+        intent = routed.request.params.intent
+        data_needs = AgentPlanner._default_data_needs(intent)
+        plan = AgentExecutionPlan(
+            intent=intent,
+            task_goal=routed.request.message or AgentPlanner._default_goal(intent),
+            steps=[
+                AgentPlanStep(
+                    step_id="step_1",
+                    goal=AgentPlanner._default_goal(intent),
+                    data_needs=data_needs,
+                    output_requirements=["按事实数据生成老师可编辑草稿"],
+                )
+            ],
+            data_needs=data_needs,
+            response_requirements=["生成老师可编辑草稿", "不要编造没有工具支持的数据"],
+            planner_reason="intent_router_adapter",
+        )
+        return PlannerResult(plan=plan, request=routed.request, warnings=routed.warnings)
