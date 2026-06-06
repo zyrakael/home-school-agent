@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 
 from app.agent.tool_policy import ToolPolicy
-from app.schemas.agent import AgentExecutionPlan
+from app.schemas.agent_contracts import AgentExecutionPlan
 
 
 @dataclass

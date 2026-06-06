@@ -14,6 +14,9 @@ const chatMessages = ref<ChatMessage[]>([
 const chatInput = ref('')
 const chatLoading = ref(false)
 const chatContainer = ref<HTMLElement | null>(null)
+const conversationId = `conv_${
+  globalThis.crypto?.randomUUID?.() ?? `${Date.now()}_${Math.random().toString(16).slice(2)}`
+}`
 
 const quickButtons: Array<{ label: string; text: string; intent: AgentIntent }> = [
   { label: '近况总结', text: '帮我总结一下这个学生最近一周的学习情况', intent: 'RECENT_SUMMARY' },
@@ -52,8 +55,8 @@ const sendMessage = async (intent?: AgentIntent) => {
   chatLoading.value = true
   try {
     const response: AgentChatResponse = await requestAgentChat({
+      conversation_id: conversationId,
       teacher_id: 'teacher_demo',
-      student_id: 'student_demo',
       message: text,
       scene: 'agent_workspace',
       params: {

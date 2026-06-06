@@ -8,7 +8,7 @@ from pathlib import Path
 from app.agent.planner import AgentPlanner
 from app.agent.tool_router import ToolRouter
 from app.llm.chat_client import ChatResult
-from app.schemas.agent import AgentChatParams, AgentChatRequest
+from app.schemas.agent_contracts import AgentChatParams, AgentChatRequest
 from app.skills.loader import SkillLoader
 from app.skills.registry import SkillRegistry
 from app.skills.selector import SkillSelector

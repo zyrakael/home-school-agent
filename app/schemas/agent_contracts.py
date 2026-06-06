@@ -39,6 +39,7 @@ class AgentChatParams(BaseModel):
 class AgentChatRequest(BaseModel):
     """Request body for POST /agent/mvp/chat."""
 
+    conversation_id: str | None = None
     teacher_id: str = Field(default="")
     student_id: str = Field(default="")
     message: str = Field(default="")

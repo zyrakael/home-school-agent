@@ -34,6 +34,7 @@ class MCPGateway:
             if default_timeout_seconds is not None
             else settings.mcp_default_timeout_seconds
         )
+        self.last_discovery_errors: list[str] = []
 
     async def call_tool(
         self,
@@ -86,6 +87,7 @@ class MCPGateway:
         """Discover tool metadata from every configured MCP server."""
 
         discovered: list[MCPToolDefinition] = []
+        self.last_discovery_errors = []
         for server in self.servers:
             try:
                 async with self._session(server) as session:
@@ -99,7 +101,10 @@ class MCPGateway:
                             input_schema=self._tool_input_schema(tool),
                         )
                     )
-            except Exception:
+            except Exception as exc:
+                self.last_discovery_errors.append(
+                    f"{server.name} MCP 工具发现失败：{exc.__class__.__name__}: {exc}"
+                )
                 continue
         return discovered
 

@@ -7,17 +7,16 @@
 ## Internal Flow
 
 ```text
-AgentPlanner
-  -> SkillSelector
-  -> ToolRouter / ToolPolicy
-  -> MCPAgentChain
+AgentService
+  -> AgentGraphRunner (LangGraph StateGraph)
+  -> session / planner / memory / skills / tools / model / commit nodes
   -> AgentChatResponse
 ```
 
+- `AgentGraphRunner` 使用 LangGraph 编排 Session Memory、Planner、Long-term Memory、Skill、ToolRouter、MCP tool calling 和记忆提交。
 - `AgentPlanner` 调用 LLM 识别 intent、拆解任务，并输出内部 `data_needs`。
-- `SkillSelector` 按 intent 选择 1 个主 Skill 和 1 个通用家校沟通 Skill。
 - `ToolRouter` 将抽象 `data_needs` 映射成允许调用的 MCP tool 白名单。
-- `MCPAgentChain` 只向 LLM 暴露白名单内工具，并在调用前做工具名和 required 参数校验。
+- MCP tool calling 只向 LLM 暴露白名单内 MCP 工具，并在调用前做工具名和 required 参数校验。
 - 执行计划只在后端内部使用，不返回前端。
 
 `mcp-data-service` 只提供 MCP 数据工具，不负责 Planner、Skill 或 ToolPolicy。
@@ -62,7 +61,7 @@ npm run dev
 
 - `POST /agent/mvp/chat`
 
-请求体使用 `app.schemas.agent.AgentChatRequest`，返回 `app.schemas.response.AgentChatResponse`。
+请求体使用 `app.schemas.agent_contracts.AgentChatRequest`，返回 `app.schemas.response.AgentChatResponse`。
 
 ## Boundary
 

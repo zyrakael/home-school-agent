@@ -10,7 +10,7 @@ from typing import Any
 from pydantic import BaseModel, Field, ValidationError
 
 from app.llm.chat_client import ChatClient, get_chat_client
-from app.schemas.agent import (
+from app.schemas.agent_contracts import (
     AgentChatRequest,
     AgentDataNeed,
     AgentExecutionPlan,

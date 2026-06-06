@@ -1,6 +1,6 @@
 """Tool policy mapping abstract data needs to MCP tools."""
 
-from app.schemas.agent import AgentDataNeed
+from app.schemas.agent_contracts import AgentDataNeed
 
 
 class ToolPolicy:

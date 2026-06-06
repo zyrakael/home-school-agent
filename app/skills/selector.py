@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 
-from app.schemas.agent import AgentIntent
+from app.schemas.agent_contracts import AgentIntent
 from app.skills.loader import Skill
 from app.skills.registry import SkillRegistry, get_skill_registry
 

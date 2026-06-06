@@ -1,1 +1,1 @@
-"""Agent helpers for prompt building and MCP tool-calling chains."""
+"""Agent helpers for planning, prompting, routing, and tool-calling chains."""

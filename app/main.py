@@ -4,9 +4,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.agent_routes import router as agent_router
+from app.core.logging import configure_logging
 
 
 def create_app() -> FastAPI:
+    configure_logging()
+
     app = FastAPI(
         title="Home-school Agent API",
         version="0.1.0",

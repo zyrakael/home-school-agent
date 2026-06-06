@@ -11,8 +11,9 @@ export type AgentChatParams = {
 }
 
 export type AgentChatRequest = {
+  conversation_id?: string | null
   teacher_id: string
-  student_id: string
+  student_id?: string
   message: string
   scene: string
   params: AgentChatParams
